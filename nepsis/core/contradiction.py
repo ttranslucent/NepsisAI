@@ -1,104 +1,120 @@
-"""Contradiction density computation."""
+"""Contradiction density computation (vectorized).
 
+Implements ρ = 0.5 * (p^T Ξ p) where:
+- p is posterior probability vector
+- Ξ is exclusivity matrix (mutual exclusivity between hypotheses)
+"""
+
+from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from nepsis.core.types import State, Hypothesis
+from nepsis.core.types import State
+from nepsis.core.utils import ensure_index, ensure_exclusivity
 
 
-def build_contradiction_matrix(hypotheses: list[Hypothesis]) -> NDArray[np.float32]:
-    """Build contradiction matrix Ξ encoding mutual exclusivity.
+def compute_contradiction_density(state: State) -> float:
+    """Compute contradiction density ρ (vectorized).
 
-    Ξ[i,j] = 1 if hypotheses i and j are mutually exclusive, 0 otherwise.
+    Implements: ρ = 0.5 * Σ_{i≠j} Ξ[i,j] * p[i] * p[j]
+              = 0.5 * (p^T Ξ p)   [since diagonal is zero]
 
-    Args:
-        hypotheses: List of hypotheses
-
-    Returns:
-        Contradiction matrix (symmetric, zero diagonal)
-    """
-    n = len(hypotheses)
-    xi = np.zeros((n, n), dtype=np.float32)
-
-    # Default: assume some hypotheses are mutually exclusive
-    # In a real implementation, this would be domain-specific
-    # For now, mark as mutually exclusive if very different priors
-    for i in range(n):
-        for j in range(i + 1, n):
-            # Simple heuristic: different priors suggest different processes
-            prior_diff = abs(hypotheses[i].prior - hypotheses[j].prior)
-
-            # Mark as contradictory if priors differ significantly
-            if prior_diff > 0.3:
-                xi[i, j] = 1.0
-                xi[j, i] = 1.0
-
-    return xi
-
-
-def compute_contradiction_density(
-    state: State,
-    contradiction_matrix: NDArray[np.float32] | None = None
-) -> float:
-    """Compute contradiction density ρ.
-
-    Implements: ρ = Σ Ξ[h1,h2] · (π_post[h1] · π_post[h2])
-
-    Measures how much probability mass is assigned to mutually exclusive hypotheses.
+    Measures probability mass assigned to mutually exclusive hypotheses.
 
     Args:
         state: Current reasoning state
-        contradiction_matrix: Mutual exclusivity matrix (if None, builds default)
 
     Returns:
         Contradiction density in [0, 1]
+
+    Example:
+        >>> # High exclusivity + high posteriors → high ρ
+        >>> state.exclusivity.matrix[0,1] = 0.9  # mutually exclusive
+        >>> state.posteriors = np.array([0.6, 0.5])  # both likely
+        >>> rho = compute_contradiction_density(state)
+        >>> # ρ ≈ 0.5 * 0.9 * 0.6 * 0.5 = 0.135
     """
-    if contradiction_matrix is None:
-        contradiction_matrix = build_contradiction_matrix(state.hypotheses)
+    if not state.hypotheses or len(state.hypotheses) < 2:
+        state.contradiction_density = 0.0
+        return 0.0
 
-    # Compute outer product of posteriors
-    posterior_product = np.outer(state.posteriors, state.posteriors)
+    # Ensure exclusivity matrix is initialized and synced
+    ensure_index(state)
+    ensure_exclusivity(state)
 
-    # Weight by contradiction matrix
-    contradictions = contradiction_matrix * posterior_product
+    # Get posterior array in correct order
+    p = state.posteriors
 
-    # Sum all contradictions (divide by 2 since matrix is symmetric)
-    rho = float(np.sum(contradictions) / 2.0)
+    # Vectorized: ρ = 0.5 * (p^T Ξ p)
+    Ξ = state.exclusivity.matrix
+    rho = 0.5 * float(p @ Ξ @ p)
 
-    return np.clip(rho, 0.0, 1.0)
+    # Clamp to [0, 1]
+    rho = max(0.0, min(1.0, rho))
+
+    # Update state
+    state.contradiction_density = rho
+
+    return rho
 
 
 def identify_contradictions(
     state: State,
     threshold: float = 0.1,
-    contradiction_matrix: NDArray[np.float32] | None = None
 ) -> list[tuple[str, str, float]]:
     """Identify specific hypothesis pairs that contradict.
 
     Args:
         state: Current reasoning state
         threshold: Minimum posterior product to report
-        contradiction_matrix: Mutual exclusivity matrix
 
     Returns:
         List of (hypothesis1_id, hypothesis2_id, contradiction_strength)
+        sorted by strength (descending)
+
+    Example:
+        >>> contradictions = identify_contradictions(state, threshold=0.05)
+        >>> for h1, h2, strength in contradictions:
+        ...     print(f"{h1} vs {h2}: {strength:.3f}")
     """
-    if contradiction_matrix is None:
-        contradiction_matrix = build_contradiction_matrix(state.hypotheses)
+    ensure_index(state)
+    ensure_exclusivity(state)
 
     contradictions = []
+    Ξ = state.exclusivity.matrix
+    p = state.posteriors
+    ids = [h.id for h in state.hypotheses]
 
     n = len(state.hypotheses)
     for i in range(n):
         for j in range(i + 1, n):
-            if contradiction_matrix[i, j] > 0:
-                strength = state.posteriors[i] * state.posteriors[j]
+            if Ξ[i, j] > 0:
+                # Contradiction strength = exclusivity × posterior product
+                strength = float(Ξ[i, j] * p[i] * p[j])
                 if strength >= threshold:
-                    contradictions.append(
-                        (state.hypotheses[i].id, state.hypotheses[j].id, float(strength))
-                    )
+                    contradictions.append((ids[i], ids[j], strength))
 
-    # Sort by strength
+    # Sort by strength (descending)
     contradictions.sort(key=lambda x: x[2], reverse=True)
 
     return contradictions
+
+
+# Deprecated: kept for backward compatibility
+def build_contradiction_matrix(hypotheses: list) -> NDArray[np.float32]:
+    """DEPRECATED: Use exclusivity_builder.infer_exclusivity_from_expectations() instead.
+
+    This function used prior differences as a heuristic, which is statistically
+    meaningless. Use explicit exclusivity rules or expectation-based inference.
+    """
+    import warnings
+    warnings.warn(
+        "build_contradiction_matrix() is deprecated. "
+        "Use exclusivity_builder.build_exclusivity_from_rules() or "
+        "infer_exclusivity_from_expectations() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
+    n = len(hypotheses)
+    return np.zeros((n, n), dtype=np.float32)

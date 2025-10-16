@@ -1,5 +1,7 @@
 """Red channel: Safety-critical signal processing."""
 
+from __future__ import annotations
+from typing import Optional
 import numpy as np
 from nepsis.core.types import Signal, State
 
@@ -30,7 +32,7 @@ def check_red_preempt(signal: Signal) -> bool:
 def compute_ruin_probability(
     state: State,
     current_ruin: float = 0.0,
-    signal: Signal | None = None
+    signal: Optional[Signal] = None
 ) -> float:
     """Compute cumulative ruin probability (monotone increasing).
 

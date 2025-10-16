@@ -1,0 +1,55 @@
+# NepsisAI v0.3.0 Streaming Policy Configuration
+# General-purpose streaming governance settings
+
+version: "0.3"
+
+# Chunking strategy
+chunking:
+  mode: hybrid  # hybrid | semantic | fixed
+  max_buffer_tokens: 100
+  emit_clause_boundaries: false  # Also emit on commas, semicolons
+
+# Intervention thresholds
+thresholds:
+  # Red channel (safety-critical)
+  red_contradiction: 0.90  # Halt if ρ >= 0.90
+
+  # ZeroBack rollback
+  zero_back: 0.75  # Suggest ZeroBack if ρ >= 0.75
+
+  # Low coherence warning
+  low_coherence: 0.35  # Warn if ψ < 0.35
+
+  # Hickam multi-cause
+  hickam_trigger: 0.40  # Suggest Hickam if ρ in [0.40, 0.75]
+
+# Metric emission
+emit:
+  every_k_tokens: 5  # Emit metrics every K chunks
+  format: json  # json | inline | table
+  include_posteriors: true  # Include full posterior vector
+
+# Governance mode
+mode: monitor  # monitor | guided | governed
+
+# Guided mode behavior (if mode=guided)
+guided:
+  inject_prompt_threshold: 0.70  # Inject clarification if ρ >= 0.70
+  prompt_template: "Let's reconsider and clarify: "
+
+# Governed mode behavior (if mode=governed)
+governed:
+  halt_threshold: 0.90  # Hard stop if ρ >= 0.90
+  zeroback_threshold: 0.80  # Restart from checkpoint
+  max_restarts: 2  # Limit ZeroBack restarts
+
+# Lyapunov weights
+lyapunov:
+  contradiction: 2.0
+  entropy: 1.0
+  coherence: 1.5
+  velocity: 0.5
+
+# Domain-specific overrides (future)
+# domain: medical | legal | financial | general
+domain: general

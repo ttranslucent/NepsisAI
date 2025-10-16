@@ -1,5 +1,7 @@
 """Interpretant layer for triadic reasoning."""
 
+from __future__ import annotations
+from typing import Optional
 import numpy as np
 from numpy.typing import NDArray
 
@@ -10,7 +12,7 @@ from nepsis.utils.math import softmax, normalize
 def apply_interpretant(
     state: State,
     signal: Signal,
-    gamma_matrix: NDArray[np.float32] | None = None
+    gamma_matrix: Optional[NDArray[np.float32]] = None
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
     """Apply interpretant modulation to evidence.
 
@@ -55,7 +57,7 @@ def apply_interpretant(
 def coherence_score(
     state: State,
     likelihoods: NDArray[np.float32],
-    compatibility_matrix: NDArray[np.float32] | None = None
+    compatibility_matrix: Optional[NDArray[np.float32]] = None
 ) -> NDArray[np.float32]:
     """Compute coherence between interpretant and hypotheses.
 

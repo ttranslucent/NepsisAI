@@ -1,9 +1,9 @@
 [project]
 name = "nepsisai"
-version = "0.1.0"
+version = "0.3.0"
 description = "Medical-grade reasoning architecture for non-ergodic decision-making"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Trenten Don Thorn", email = "your.email@example.com"}
@@ -13,6 +13,8 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -36,6 +38,15 @@ viz = [
     "matplotlib>=3.7.0",
     "seaborn>=0.12.0",
 ]
+stream = [
+    "openai>=1.0.0",
+    "anthropic>=0.18.0",
+]
+enterprise = [
+    "openai>=1.0.0",
+    "anthropic>=0.18.0",
+    "redis>=5.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/nepsisai"
@@ -56,16 +67,16 @@ addopts = "-v --tb=short"
 
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py39']
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py39"
 select = ["E", "F", "I"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
