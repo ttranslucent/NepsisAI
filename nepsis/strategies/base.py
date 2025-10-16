@@ -1,7 +1,8 @@
 """Base strategy configuration."""
 
+from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 from nepsis.control.lyapunov import LyapunovWeights
 
 
@@ -12,7 +13,7 @@ class StrategyConfig:
     name: str
     collapse_mode: str = "occam"  # "occam", "hickam", or "auto"
     red_channel_threshold: float = 0.8
-    lyapunov_weights: Dict[str, float] | None = None
+    lyapunov_weights: Optional[Dict[str, float]] = None
     occam_threshold: float = 0.7
     hickam_threshold: float = 0.3
     zeroback_threshold: float = 0.8

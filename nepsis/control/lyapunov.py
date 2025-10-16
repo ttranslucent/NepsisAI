@@ -1,5 +1,7 @@
 """Lyapunov convergence tracking."""
 
+from __future__ import annotations
+from typing import Optional
 import numpy as np
 from numpy.typing import NDArray
 from dataclasses import dataclass
@@ -19,7 +21,7 @@ class LyapunovWeights:
 
 def compute_lyapunov(
     state: State,
-    weights: LyapunovWeights | None = None
+    weights: Optional[LyapunovWeights] = None
 ) -> float:
     """Compute Lyapunov energy function.
 

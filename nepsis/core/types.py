@@ -1,10 +1,14 @@
 """Core data types for NepsisAI reasoning system."""
 
+from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from enum import Enum
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from nepsis.core.exclusivity_builder import Exclusivity
 
 
 class SignalType(Enum):
@@ -42,6 +46,7 @@ class Hypothesis:
     id: str
     name: str
     prior: float = 0.0
+    expects: Dict[str, Any] = field(default_factory=dict)  # Expected signal values
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -84,15 +89,25 @@ class State:
     likelihoods: NDArray[np.float32] = field(default_factory=lambda: np.array([]))
     coherence_scores: NDArray[np.float32] = field(default_factory=lambda: np.array([]))
 
+    # Exclusivity matrix (mutual exclusivity between hypotheses)
+    exclusivity: Optional[Exclusivity] = None
+
+    # Internal index for fast hypothesis lookup
+    _index: Dict[str, int] = field(default_factory=dict, repr=False)
+
     # Convergence metrics
     contradiction_density: float = 0.0
     lyapunov_value: float = 0.0
     lyapunov_stable: bool = False
+    ruin_prob: float = 0.0  # Non-ergodic ruin probability (monotone)
 
     # Control
     step_num: int = 0
     collapse_mode: CollapseMode = CollapseMode.OCCAM
     red_preempted: bool = False
+
+    # Metadata for collapse decisions and audit
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     # History
     posterior_history: List[NDArray[np.float32]] = field(default_factory=list)

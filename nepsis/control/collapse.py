@@ -1,62 +1,193 @@
-"""Collapse governor for decision-making."""
+"""Collapse governor for decision-making with Hickam cluster support."""
 
+from __future__ import annotations
 import numpy as np
-from numpy.typing import NDArray
+from typing import Tuple, List, Optional
 
 from nepsis.core.types import State, CollapseMode, Hypothesis
+from nepsis.core.config import (
+    COLLAPSE_MIN_TOP,
+    COLLAPSE_MAX_CONTRA,
+    COLLAPSE_MAX_RUIN,
+    HICKAM_MASS_THRESH,
+    HICKAM_MAX_PAIR_XI,
+)
+from nepsis.core.utils import ensure_index, ensure_exclusivity
+
+
+def _top(state: State) -> Tuple[Optional[Hypothesis], float]:
+    """Get top hypothesis and its posterior.
+
+    Returns:
+        Tuple of (top_hypothesis, top_posterior) or (None, 0.0)
+    """
+    if not state.hypotheses or len(state.posteriors) == 0:
+        return (None, 0.0)
+
+    top_idx = np.argmax(state.posteriors)
+    return (state.hypotheses[top_idx], float(state.posteriors[top_idx]))
+
+
+def _hickam_cluster_ok(state: State) -> Tuple[bool, List[Hypothesis], float]:
+    """Check if Hickam cluster collapse is valid.
+
+    Greedy algorithm:
+    1. Sort hypotheses by posterior (descending)
+    2. Add each to cluster if exclusivity with all current members <= threshold
+    3. Stop when total mass >= threshold and cluster size >= 2
+
+    Args:
+        state: Current reasoning state
+
+    Returns:
+        Tuple of (is_valid, cluster_hypotheses, total_mass)
+    """
+    ensure_index(state)
+    ensure_exclusivity(state)
+
+    if not state.hypotheses or len(state.hypotheses) < 2:
+        return (False, [], 0.0)
+
+    # Sort hypotheses by posterior (descending)
+    sorted_indices = np.argsort(state.posteriors)[::-1]
+    sorted_hyps = [state.hypotheses[i] for i in sorted_indices]
+
+    cluster: List[Hypothesis] = []
+    mass = 0.0
+    Ξ = state.exclusivity.matrix
+
+    for h in sorted_hyps:
+        if state.posteriors[state._index[h.id]] == 0.0:
+            break
+
+        # Check pairwise exclusivity with current cluster members
+        compatible = True
+        for c in cluster:
+            xi = Ξ[state._index[h.id], state._index[c.id]]
+            if xi > HICKAM_MAX_PAIR_XI:
+                compatible = False
+                break
+
+        if compatible:
+            cluster.append(h)
+            mass += state.posteriors[state._index[h.id]]
+
+        # Success criterion: enough mass and multiple causes
+        if mass >= HICKAM_MASS_THRESH and len(cluster) >= 2:
+            return (True, cluster, mass)
+
+    # Didn't meet criteria
+    return (False, cluster, mass)
 
 
 def decide_collapse(
     state: State,
-    occam_threshold: float = 0.7,
-    hickam_threshold: float = 0.3,
-    zeroback_threshold: float = 0.8
-) -> tuple[CollapseMode, list[Hypothesis]]:
-    """Decide which collapse mode to use.
-
-    Three modes:
-    1. OCCAM: Single hypothesis (low contradiction, high confidence)
-    2. HICKAM: Multiple hypotheses (domain expects multiple causes)
-    3. ZEROBACK: Epistemic reset (stuck in contradiction)
+    occam_threshold: Optional[float] = None,
+    hickam_threshold: Optional[float] = None,
+    zeroback_threshold: Optional[float] = None
+) -> Tuple[CollapseMode, List[Hypothesis]]:
+    """Decide which collapse mode to use (legacy compatibility).
 
     Args:
         state: Current reasoning state
-        occam_threshold: Min posterior for Occam collapse
-        hickam_threshold: Min posterior for Hickam inclusion
-        zeroback_threshold: Max contradiction for avoiding ZeroBack
+        occam_threshold: Min posterior for Occam collapse (unused, uses config)
+        hickam_threshold: Min posterior for Hickam inclusion (unused, uses config)
+        zeroback_threshold: Max contradiction for avoiding ZeroBack (unused, uses config)
 
     Returns:
         Tuple of (collapse_mode, selected_hypotheses)
     """
-    max_posterior = state.posteriors.max()
-    rho = state.contradiction_density
+    # Check for ZeroBack condition
+    if state.contradiction_density > (zeroback_threshold or COLLAPSE_MAX_CONTRA):
+        return (CollapseMode.ZEROBACK, [])
 
-    # ZeroBack: too much contradiction, need reset
-    if rho > zeroback_threshold:
-        return CollapseMode.ZEROBACK, []
+    # Check collapse based on mode
+    if state.collapse_mode == CollapseMode.HICKAM:
+        ok, cluster, mass = _hickam_cluster_ok(state)
+        if ok:
+            return (CollapseMode.HICKAM, cluster)
 
-    # Occam: single clear winner
-    if max_posterior >= occam_threshold and rho < 0.3:
-        top_idx = np.argmax(state.posteriors)
-        return CollapseMode.OCCAM, [state.hypotheses[top_idx]]
+    # Occam or fallback
+    top_hyp, top_w = _top(state)
+    if top_hyp and top_w >= (occam_threshold or COLLAPSE_MIN_TOP):
+        return (CollapseMode.OCCAM, [top_hyp])
 
-    # Hickam: multiple plausible hypotheses
-    selected_indices = np.where(state.posteriors >= hickam_threshold)[0]
-    if len(selected_indices) > 1:
-        selected = [state.hypotheses[i] for i in selected_indices]
-        return CollapseMode.HICKAM, selected
+    # No collapse
+    return (state.collapse_mode, [])
 
-    # Default to Occam with top hypothesis
-    top_idx = np.argmax(state.posteriors)
-    return CollapseMode.OCCAM, [state.hypotheses[top_idx]]
+
+def should_collapse(state: State) -> bool:
+    """Decide if state should collapse to decision.
+
+    Args:
+        state: Current reasoning state
+
+    Returns:
+        True if collapse criteria met
+    """
+    top_hyp, top_w = _top(state)
+
+    if top_hyp is None:
+        return False
+
+    # Never collapse in defer mode
+    if state.collapse_mode == CollapseMode.ZEROBACK:
+        # ZeroBack is handled separately
+        return False
+
+    # Occam collapse: single strong hypothesis, low contradiction, low ruin
+    if state.collapse_mode == CollapseMode.OCCAM:
+        return (
+            top_w >= COLLAPSE_MIN_TOP and
+            state.contradiction_density <= COLLAPSE_MAX_CONTRA and
+            state.ruin_prob <= COLLAPSE_MAX_RUIN
+        )
+
+    # Hickam collapse: valid cluster with low ruin
+    if state.collapse_mode == CollapseMode.HICKAM:
+        ok, cluster, mass = _hickam_cluster_ok(state)
+        return ok and state.ruin_prob <= COLLAPSE_MAX_RUIN
+
+    return False
+
+
+def collapse(state: State) -> State:
+    """Apply collapse decision to state.
+
+    Updates state.decision and logs collapse details.
+
+    Args:
+        state: State to collapse
+
+    Returns:
+        Updated state
+    """
+    if state.collapse_mode == CollapseMode.HICKAM:
+        ok, cluster, mass = _hickam_cluster_ok(state)
+        if ok:
+            # Log Hickam cluster collapse
+            cluster_ids = [h.id for h in cluster]
+            state.metadata = state.metadata if hasattr(state, 'metadata') else {}
+            state.metadata['collapse_cluster'] = cluster_ids
+            state.metadata['collapse_mass'] = mass
+            return state
+
+    # Occam or fallback
+    top_hyp, top_w = _top(state)
+    if top_hyp:
+        state.metadata = state.metadata if hasattr(state, 'metadata') else {}
+        state.metadata['collapse_top'] = top_hyp.id
+        state.metadata['collapse_weight'] = top_w
+
+    return state
 
 
 def apply_collapse(
     state: State,
     mode: CollapseMode,
-    selected_hypotheses: list[Hypothesis]
+    selected_hypotheses: List[Hypothesis]
 ) -> State:
-    """Apply collapse decision to state.
+    """Apply collapse decision to state (legacy compatibility).
 
     Args:
         state: Current state
