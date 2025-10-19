@@ -3,7 +3,7 @@
 > A non-ergodic reasoning framework built to medical-grade standards for decision-making under irreversible risk.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[[!License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Version](https://img.shields.io/badge/version-0.3.0-green.svg)](https://github.com/yourusername/nepsisai/releases)
 
 ## What This Is
